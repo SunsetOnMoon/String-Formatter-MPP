@@ -1,4 +1,6 @@
 ﻿using System.Collections.Concurrent;
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Text;
 
 namespace StringFormatter.Core
@@ -62,39 +64,83 @@ namespace StringFormatter.Core
                     replacedStr = func(target);
                 else
                 {
-                    var func = GetExprTreeFunc(type, substr);
-                    replacedStr = func(target);
-                    _cache.AddOrUpdate(type, new Dictionary<string, Func<object, string>> { { substr, func } },
+                    var uncachedFunc = GetExprTreeFunc(type, substr);
+                    replacedStr = uncachedFunc(target);
+                    _cache.AddOrUpdate(type, new Dictionary<string, Func<object, string>> { { substr, uncachedFunc } },
                         (_, dict) =>
                         {
-                            dict.Add(substr, func);
+                            dict.Add(substr, uncachedFunc);
                             return dict;
                         });
                 }
             }
             else
-                throw new Exception("Can't format string for collection types.")
-
-        }
-
-        private static Func<object, string> GetExprTreeFunc(Type type, string substring)
-        {
+                throw new Exception("Can't format string for collection types.");
 
         }
         private static string GetSubstr(StringBuilder sb, int startIndex, ref int index)
         {
+            while (sb[index] != '}')
+                index++;
+            int count = index - startIndex;
+            char[] charStr = new char[count];
+
+            sb.CopyTo(startIndex, charStr, 0, count);
+
+            return new string(charStr);
+        }
+        private static Func<object, string> GetExprTreeFunc(Type type, string memberName)
+        {
+            MemberInfo[] infos = type.GetMembers(BindingFlags.Public | BindingFlags.Instance);
+            if (!(infos.Any(m => m.Name == memberName)))
+                throw new ArgumentException($"Can't find member with this name: {memberName}");
+
+            ParameterExpression parameter = Expression.Parameter(typeof(object), "param");
+            MemberExpression memberExpression = Expression.PropertyOrField(Expression.TypeAs(parameter, type), memberName);
+            MethodCallExpression toStrExpression = Expression.Call(memberExpression, "ToString", null, null);
+            var func = Expression.Lambda<Func<object, string>>(toStrExpression, parameter).Compile();
+            return func;
 
         }
         private static bool IsCorrectCurlyBraces(string template)
         {
             int counter = 0;
+            int j;
             for (int i = 0; i < template.Length; i++)
             {
                 if (template[i] == '{')
-                    counter++;
+                {
+                    j = i;
+                    int openCurlBracesCount = 0;
+                    while (j < template.Length && template[j] == '{')
+                    {
+                        openCurlBracesCount++;
+                        j++;
+                    }
+                    if (openCurlBracesCount % 2 == 0)
+                        i = j;
+                    else
+                    {
+                        counter++;
+                        i = j;
+                    }
+                }
                 else if (template[i] == '}')
                 {
-                    counter--;
+                    j = i;
+                    int closeCurlBracesCount = 0;
+                    while (j < template.Length && template[j] == '{')
+                    {
+                        closeCurlBracesCount++;
+                        j++;
+                    }
+                    if (closeCurlBracesCount % 2 == 0)
+                        i = j;
+                    else
+                    {
+                        counter--;
+                        i = j;
+                    }
                 }
                 
             }
