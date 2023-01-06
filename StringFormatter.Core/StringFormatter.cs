@@ -28,11 +28,11 @@ namespace StringFormatter.Core
                     if (openCurlBracesCount >= 2)
                     {
                         int removeCount = openCurlBracesCount / 2;
-                        sb.Remove(i - removeCount, removeCount);
+                        sb.Remove(i - openCurlBracesCount, removeCount);
                         i -= removeCount;
                     }
-                    if (openCurlBracesCount % 2 == 0)
-                        SubsInString(sb, target, ref i);
+                    if (openCurlBracesCount % 2 == 1)
+                        SubsInString(ref sb, target, ref i);
                 }
 
                 int closeCurlBracesCount = 0;
@@ -41,31 +41,31 @@ namespace StringFormatter.Core
                     closeCurlBracesCount++;
                     i++;
                 }
-                if (closeCurlBracesCount >= 1)
+                if (closeCurlBracesCount > 0)
                 {
                     int removeCount = closeCurlBracesCount / 2;
-                    sb.Remove(i - removeCount, removeCount);
+                    sb.Remove(i - closeCurlBracesCount, removeCount);
                     i -= removeCount;
                 }
             }
             return sb.ToString();
         }
 
-        private void SubsInString(StringBuilder sb, object target, ref int index)
+        private void SubsInString(ref StringBuilder sb, object target, ref int index)
         {
             int startIndex = index;
             string substr = GetSubstr(sb, startIndex, ref index).Trim();
             Type type = target.GetType();
 
-            string replacedStr = "";
+            string insertStr = "";
             if (substr.IndexOf('[') == -1)
             {
                 if (_cache.TryGetValue(type, out var typeDict) && typeDict.TryGetValue(substr, out var func))
-                    replacedStr = func(target);
+                    insertStr = func(target);
                 else
                 {
                     var uncachedFunc = GetExprTreeFunc(type, substr);
-                    replacedStr = uncachedFunc(target);
+                    insertStr = uncachedFunc(target);
                     _cache.AddOrUpdate(type, new Dictionary<string, Func<object, string>> { { substr, uncachedFunc } },
                         (_, dict) =>
                         {
@@ -77,6 +77,12 @@ namespace StringFormatter.Core
             else
                 throw new Exception("Can't format string for collection types.");
 
+            startIndex--;
+            int newSubstrLength = substr.Length + 2;
+            sb.Remove(startIndex, newSubstrLength);
+            sb.Insert(startIndex, insertStr);
+
+            index = index - newSubstrLength + insertStr.Length;
         }
         private static string GetSubstr(StringBuilder sb, int startIndex, ref int index)
         {
@@ -129,7 +135,7 @@ namespace StringFormatter.Core
                 {
                     j = i;
                     int closeCurlBracesCount = 0;
-                    while (j < template.Length && template[j] == '{')
+                    while (j < template.Length && template[j] == '}')
                     {
                         closeCurlBracesCount++;
                         j++;
